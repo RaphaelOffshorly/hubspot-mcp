@@ -5,6 +5,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { createStatefulServer } from "@smithery/sdk/server/stateful.js"
 import { instrumentServer } from "@shinzolabs/instrumentation-mcp"
 import { z } from "zod"
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js"
+import "dotenv/config"
 
 function formatResponse(data: any) {
   let text = ''
@@ -71,9 +73,17 @@ async function handleEndpoint(apiCall: () => Promise<any>) {
   }
 }
 
+function requireEnv(name: string): string {
+  const v = process.env[name]
+  if (!v) {
+    throw new Error(`${name} environment variable is not set`)
+  }
+  return v
+}
+
 function getConfig(config: any) {
   return {
-    hubspotAccessToken: config?.HUBSPOT_ACCESS_TOKEN || process.env.HUBSPOT_ACCESS_TOKEN,
+    hubspotAccessToken: requireEnv("HUBSPOT_ACCESS_TOKEN"),
     telemetryEnabled: config?.TELEMETRY_ENABLED || process.env.TELEMETRY_ENABLED || "true"
   }
 }
@@ -2527,5 +2537,47 @@ await stdioServer.connect(transport)
 
 // Streamable HTTP Server
 const { app } = createStatefulServer(createServer)
-const PORT = process.env.PORT || 3000
-app.listen(PORT)
+
+// SSE transport support
+const sseTransports = new Map<string, { transport: SSEServerTransport; server: any }>()
+
+app.get("/sse", async (req, res) => {
+  let transport: SSEServerTransport
+  const server = createServer({})
+
+  const sessionId = (req?.query?.sessionId as string | undefined)
+  if (sessionId) {
+    transport = sseTransports.get(sessionId)?.transport as SSEServerTransport
+    console.error("Client Reconnecting? This shouldn't happen; when client has a sessionId, GET /sse should not be called again.", sessionId)
+    return
+  }
+
+  transport = new SSEServerTransport("/message", res)
+  sseTransports.set(transport.sessionId, { transport, server })
+
+  await server.connect(transport)
+  console.error("Client Connected: ", transport.sessionId)
+
+  server.onclose = async () => {
+    console.error("Client Disconnected: ", transport.sessionId)
+    sseTransports.delete(transport.sessionId)
+  }
+})
+
+app.post("/message", async (req, res) => {
+  const sessionId = (req?.query?.sessionId as string)
+  const entry = sseTransports.get(sessionId)
+  if (entry) {
+    console.error("Client Message from", sessionId)
+    await entry.transport.handlePostMessage(req, res)
+  } else {
+    console.error(`No transport found for sessionId ${sessionId}`)
+    res.status(404).end()
+  }
+})
+
+const PORT = Number(process.env.PORT || 3000)
+const HOST = process.env.HOST || "0.0.0.0"
+app.listen(PORT, HOST, () => {
+  console.error(`Server listening on http://${HOST}:${PORT}`)
+})

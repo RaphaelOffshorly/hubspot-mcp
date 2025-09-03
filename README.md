@@ -100,6 +100,35 @@ pnpm i
 | `PORT                ` | Port for Streamable HTTP transport method | No        | `3000`  |
 | `TELEMETRY_ENABLED`    | Enable telemetry                          | No        | `true`  |
 
+## SSE Transport and MCP Inspector
+
+This server now supports Server-Sent Events (SSE) transport and can be tested with the official MCP Inspector.
+
+Important:
+- HUBSPOT_ACCESS_TOKEN is read only from a local .env file. Do not set it via client config or command-line environment when using this server.
+- Create a .env at the project root:
+  HUBSPOT_ACCESS_TOKEN=your-access-token
+  PORT=3000
+
+Run locally:
+1) Install and build
+   pnpm i
+   pnpm build
+
+2) Start the server (dotenv is auto-loaded)
+   pnpm start
+   # or
+   node dist/index.js
+
+3) Open the official MCP Inspector and connect via SSE:
+   - Transport/Type: SSE
+   - URL: http://localhost:${PORT:-3000}/sse
+   - The server will handle POST messages at /message automatically.
+
+Notes:
+- The server exposes both STDIO (for traditional MCP clients) and SSE endpoints simultaneously. For remote usage and MCP Inspector testing, use the SSE URL above.
+- Telemetry can be disabled by setting TELEMETRY_ENABLED=false in .env.
+
 ## Supported Tools
 
 ### Core CRM Objects
